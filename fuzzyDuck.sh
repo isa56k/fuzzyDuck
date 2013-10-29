@@ -2,7 +2,7 @@
 # 
 #       Author: t:@isa56k e:me@isa56k.com w:www.isa56k.com
 # 	      File: fuzzyDuck.sh
-#      version: 0.2
+#      version: 0.3
 # 	     About: A shell script that is used to fuzz on an iOS device. 
 #               Creates a webserver to serve up test cases that are 
 #               created via zzuf and then uses sbopenurl to try and
@@ -20,28 +20,42 @@
 #      Example: ./fuzzyDuck.sh <filename> <url> <port> <sleep>
 #               ./fuzzyDuck.sh fuzzThis.mov http://localhost 3000 15
 # Arguments
-testfile=$1 # First is the file we are going to fuzz
+testFile=$1 # First is the file we are going to fuzz
 url=$2 # The root url for the test case
 port=$3 # The port to start the webserver and connect to for testing
 sleeptime=$4 #Time to sleep between testcases (this should probably be the length of the mov file before it is fuzzed?)
 #address=$5 # Address for iMessage crash if found (Not used at present).
 
-# Other variables
-debugmode=1 #Just used this to stop at a few points an debug slowly rather than a crazy loop you can't track
-fuzzedfile="fuzzed_$1" # This is the output file that has been fuzzed that we will eventually test
-counter=1 # Counter for working out the test case that has failed
+# Directories
+testCaseDir=./01_testcases/
+crashDir=./02_crashes/
+logDir=./03_logs/
+configDir=./04_conf/
 CrashReporter=/private/var/mobile/Library/Logs/CrashReporter/
-PanicLogsCrashReporter=/var/logs/CrashReporter/ # Directory that stores crash reports
-lastTestCase=./04_conf/LastTestCase.dat # File that holds the last test case, used if device reboots or kernel panic
+PanicLogsCrashReporter=/var/logs/CrashReporter/Panics # Directory that stores kernel panics
+varLogsCrashReporter=/var/logs/CrashReporter/
+
+# Config Files
+lighttpdConf=./04_conf/fuzzyDuck.conf # Contains lighttpd configuration 
+lastTestCaseDat=./04_conf/lastTestCase.dat # File that holds the last test case, used if device reboots or kernel panic
+lastSeedUsedDat=./04_conf/lastSeedUsed.dat # File that holds the last test seed used.
+lastRatioUsedDat=./04_conf/lastRatioUsed.dat # File that holds the last test ratio used.
+kernelPanicStatusDat=./04_conf/kernelPanic.dat # Status if recovering from kernel panic
+iMessageAddressDat=./04_conf/iMessage.dat # Address for iMessage to send too
+
 # upD0g Stuff
 upD0g="/bin/bash $(readlink -f $0) $1 $2 $3 $4"
-upD0gFile=./04_conf/upD0g.sh
+upD0gFile="$configDir"upD0g.sh
 upD0gDaemon=./04_conf/com.56klabs.upD0g.xml
+
+# Other variables
+fuzzedfile="fuzzed_$1" # This is the output file that has been fuzzed that we will eventually test
+counter=1 # Counter for working out the test case that has failed
 
 # Have to check the logs directory situation as this won't work if the logs dir isn't in place
 if [ -d 03_logs ] 
 	then
-		LOGFILE="03_logs/`date +%Y%m%d%H%M%S`.log" # Logilfe to use
+		LOGFILE="$logDir`date +%Y-%m-%d-%H%M%S`.log" # Logilfe to use
 	else
 		LOGFILE="intialsetup.log" # Logilfe to use
 fi
@@ -151,11 +165,8 @@ cleanup(){
   # Kill lighttpd
   killall -9 lighttpd 2> /dev/null
 
-  # Delete the running file
-  rm -f ./04_conf/fuzzyDuck.running
-  
   # Set the kernel panic value to 0 as clean exit
-  echo 0 > 04_conf/kernelpanic.dat
+  echo 0 > $kernelPanicStatusDat
   
   return $?
 }
@@ -172,37 +183,110 @@ control_c()
 # When user calls ./fuzzyDuck.sh cleanmeup then all the directories are deleted
 resetFuzzyDuck(){
 	log "[w]: Reseting fuzzyDuck and deleting all driectories. Bye."
-	# Was gongto do rm -r 0* but deviced to be a bit more cautious
-	rm -r ./01_testcases/ 2> /dev/null 
-	rm -r ./02_crashes/ 2> /dev/null 
-	rm -r ./03_logs/ 2> /dev/null 
-	rm -r ./04_conf/ 2> /dev/null 
+	# Was going to do rm -r 0* but deviced to be a bit more cautious
+	rm -r $testCaseDir 2> /dev/null 
+	rm -r $crashDir 2> /dev/null 
+	rm -r $logDir 2> /dev/null 
+	rm -r $configDir 2> /dev/null 
 	# Quit and let user start again
 	exit
 }
 
 # Fucntion called after 1st run from kernelPanic to find crash logs
-findPanicCrashLogs()
+findCrashLogs()
 {
+	# $1 = Directory where the crashes might be found
+	# $2 = The output directory to store crashes for inspection
+	# $3 = The counter for the test case so can match them all up
+
+	# set a log counter
  	logCounter=0
-			# Search for the crash logs
+
+ 	# Get the last test case
+ 	if [ -e $lastTestCaseDat ]; then 
+ 		lastTestCase=$(<$lastTestCaseDat); 
+ 	else 
+ 		log "[e]: Unable to find $lastTestCaseDat"
+ 		cleanup
+ 		exit
+ 	fi
+
+ 	# Get the last seed
+ 	if [ -e $lastSeedUsedDat ]; then 
+ 		lastSeedUsed=$(<$lastSeedUsedDat); 
+ 	else 
+ 		log "[e]: Unable to find $lastSeedUsedDat"
+ 		cleanup
+ 		exit
+ 	fi
+
+ 	#Get the last ratio
+ 	if [ -e $lastRatioUsedDat ]; then 
+ 		lastRatioUsed=$(<$lastRatioUsedDat); 
+ 	else 
+ 		log "[e]: Unable to find $lastRatioUsedDat"
+ 		cleanup
+ 		exit
+ 	fi
+
+		# Search for the crash logs
 		find $1 -type f | while read line 
 		do
 			# Increment counter
 			(( logCounter++ ))
 
 			# Tell the user that the crash log has been found
-			log "[i]: Found following crash $line."
+			log "[i]: Found following crash $line"
+
+			# The Test case and see were
+			log "[i]: Test case used was $lastTestCase with seed $lastSeedUsed and ratio $lastRatioUsed."
 			
 			# Tell the user it will be moved to the crashes directory
-			log "[i]: Moving crash $line to directory 02_crashes/$2" 
+			log "[i]: Moving crash $line to directory $2"
+		
+			# Move the crash to the crash directory
+			mv $line $2/"$3"_$(basename $line) 2> /dev/null
+			
+			# If there is no test case for the crash create it
+			if [ ! -e $2/$(basename $lastTestCase) ]; then
 
-			# Move to the crashes directory
-			mv $line 02_crashes/$2/"$logCounter"_$(basename $line) 2> /dev/null
+				# Tell user moving last test case to the crash directory	
+				log "[i]: Moving test case $lastTestCase to directory $2/"
+
+				# If a test case exists then move it if not then error to the user
+				if [ -e $lastTestCase ]; then
+
+					# Now move the test case that caused the panic to the directory
+					mv $lastTestCase $2
+
+					# Log to user that it has been moved
+					log "[i]: Moved the test case $lastTestCase to $2/"
+
+				# Error that test case couldn't be found
+				else
+					# Log the error
+					log "[e]: Unable to find $lastTestCase, something is not right here?"
+				
+				# end if
+				fi
+
+				# Let user know that we saving seed info
+				log "[i]: Creating seed info for $line in $2/$(basename $lastTestCase).info"
+
+				# Create the seed info
+				echo "Seed Used = $lastSeedUsed" > $2/"$(basename $lastTestCase)".info
+
+				# Let user know we are saving ratio info
+				log "[i]: Creating ratio info for $line in $2/$(basename $lastTestCase).info"
+
+				# Create the ratio info
+				echo "Ratio Used = $lastRatioUsed" >> $2/"$(basename $lastTestCase)".info
+			# end if
+			fi 
 
 		# All done :)
 		done
-	log "[i]: Found $logCounter logs in $1."
+
 }
 
 # Hidden(ish) feature :)
@@ -211,8 +295,9 @@ iMessage()
 	# Used to send iMessage but you need to install biteSMS (licensed) 
 	# & configure 04_conf/iMessage.dat with your address.
 	if [ -e /Applications/biteSMS.app/biteSMS ]; then	
-		if [ -e ./04_conf/iMessage.dat ]; then 
-			iMessageAddress=$(<./04_conf/iMessage.dat); 
+		if [ -e $iMessageAddressDat ]; then 
+			iMessageAddress=$(<$iMessageAddressDat); 
+			echo iMessageAddress
 			/Applications/biteSMS.app/biteSMS -send -iMessage $iMessageAddress 
 			log "[i]: iMessage $1 sent to $iMessageAddress."
 		fi
@@ -283,7 +368,7 @@ fi
 # Install upD0g launchDaemon
 if [ "$1" = installUpD0g ]; then 	
 	# Check if the plist file exists to install 
-	if [ ! -f ./04_conf/$upD0gDaemon ]; then
+	if [ ! -f $configDir$upD0gDaemon ]; then
 		# At this point the conf directory might not exist so lets create it if needed
 		makingDirs 04_conf
 		# Log didn't find launchDaemon downloading
@@ -361,16 +446,16 @@ fi
 # Check for required directories and create if they don' exist
 log "[i]: Checking for required directories."
 # Call the function makingDirs and pass in name of directory to create
-makingDirs 01_testcases 
-makingDirs 02_crashes
-makingDirs 03_logs
-makingDirs 04_conf
+makingDirs $testCaseDir 
+makingDirs $crashDir
+makingDirs $logDir
+makingDirs $configDir
 
 # Now we have a proper logs directory we can move the log to the directory and continue using that
 if [ -e intialsetup.log ] 
 	then
 		log "[w]: Moving initalsetup.log to logs dir and renaming"
-		LOGFILE="03_logs/`date +%Y%m%d%H%M%S`.log" 
+		LOGFILE="$logDir`date +%Y-%m-%d-%H%M%S`.log" 
 		mv intialsetup.log $LOGFILE
 		log "[i]: Using log file $LOGFILE."
 	else
@@ -378,25 +463,27 @@ if [ -e intialsetup.log ]
 fi
 
 # Create a directory specifically related to this fuzzing session
-sessiondate="`date +%Y%m%d%H%M%S`" # Get the date and time this session started 
-log "[i]: Using session date of $sessiondate"
+sessionDate="`date +%Y-%m-%d-%H%M%S`" # Get the date and time this session started 
+log "[i]: Using session date of $sessionDate"
 
 # create a variable to hold testcasedir
-testcasedir="01_testcases/$sessiondate"
+sessionTestCaseDir="$testCaseDir$sessionDate"
 
 # make the test cases dir
-mkdir $testcasedir # Then create a testcases directory for the session
+makingDirs $sessionTestCaseDir # Then create a testcases directory for the session
 
 # create a variable to hold crashdir
-crashdir="02_crashes/$sessiondate"
+sessionCrashDir="$crashDir$sessionDate"
 
-#Make the crash dir
-mkdir $crashdir 
+# Make the session crash dir
+makingDirs $sessionCrashDir 
 
-log "[i]: Session directories created ($testcasedir and $crashdir)"
+# Make the panic dir for kernel panics
+makingDirs $sessionCrashDir/panics
+
+log "[i]: Session directories created ($sessionTestCaseDir and $sessionCrashDir)"
 
 # Web Server Setup
-#
 # Let user know will be killing off any lighttpd processes
 log "[w]: Killing off any old lighttpd processes."
 
@@ -407,26 +494,26 @@ killall -9 lighttpd 2> /dev/null
 log "[i]: Checking for lighttpd configuration file fuzzyDuck.conf."
 
 #if fuzzyDuck.conf doesn't exist 
-if [ -f 04_conf/fuzzyDuck.conf ];
+if [ -f $lighttpdConf ];
 	then
 		# Let user know we have the config file for lighttpd
-		log "[i]: lighttpd config file fuzzyDuck.conf exists."
+		log "[i]: lighttpd config file $lighttpdConf exists."
 	else
 		# Log that we are downloading the config file
 		log "[w]: Downloading fuzzyDuck.conf file for lighttpd configuratiom."
 		
 		# download it
-		wget -q --no-check-certificate https://dl.dropboxusercontent.com/u/19521614/fuzzyDuck.conf -O ./04_conf/fuzzyDuck.conf
+		wget -q --no-check-certificate https://dl.dropboxusercontent.com/u/19521614/fuzzyDuck.conf -O $lighttpdConf
 
 		# Need to update fuzzyDuck.conf with the directory we are running in
-		sed -i -e 's?InsertRootHere?'`pwd`?'g' ./04_conf/fuzzyDuck.conf
+		sed -i -e 's?InsertRootHere?'`pwd`?'g' $lighttpdConf
 fi
 
 #Let user know we are going to start lighttpd
 log "[i]: Starting lighttpd web server."
 
 # Start the lightttpd
-lighttpd -f 04_conf/fuzzyDuck.conf 2> /dev/null 
+lighttpd -f $lighttpdConf 2> /dev/null 
 
 #Let user know we are going to kill of any old Safari processes
 log "[w]: Killing off any old MobileSafari processes."
@@ -441,9 +528,9 @@ killall -9 MobileSafari 2> /dev/null
 # we should check for crashes. If it doesn't exist then the chances are the device 
 # rebooted or restarted woth out a kernel panic.
 # 
-if [ -e ./04_conf/kernelpanic.dat ]; then 
+if [ -e $kernelPanicStatusDat ]; then 
 	# Pull kernel panic value fro file into a variable
-	kernelPanic=$(<./04_conf/kernelpanic.dat); 
+	kernelPanic=$(<$kernelPanicStatusDat); 
 	log "[i]: Kernel Panic value is <$kernelPanic>."
 fi
 
@@ -455,48 +542,31 @@ if [[ kernelPanic -eq 1 ]]; then
 	iMessage KernelPanicRecovery
 
 	# Get the test case that caused the panic
-	lastTestCase=$(<./04_conf/LastTestCase.dat)
+	lastTestCase=$(<$lastTestCaseDat)
 
 	# Log to the user the test case that has caused the panic
 	log "[i]: The last test case to run was $lastTestCase"
 
 	# Work out the last session crashes dir you should be moving to
-	lastCrashDir=$(echo $lastTestCase | awk -F / '{ print $2 }')
+	lastCrashDir=$(echo $lastTestCase | awk -F / '{ print $3 }')
+
+	# Need to work out the counter that was used in the last test case
+	tmp="${lastTestCase##*/}"
+
+	# Extract it from the filename
+	lastCounter="${tmp%%_*}"
 
 	# Tell user the last directory used to store crashes on last test run
 	log "[i]: The last crash directory used was $lastCrashDir."
 
-	# Tell user we are checking panic logs directory
-	log "[i]: Checking for crash logs in $CrashReporter"
-
-	# Search the CrashReporte directory 
-	findPanicCrashLogs $CrashReporter $lastCrashDir
-
-	# Tell user we are checking panic logs directory
-	log "[i]: Now checking for crash logs in $PanicLogsCrashReporter"
-
-	# Search the panic logs directory
-	findPanicCrashLogs $PanicLogsCrashReporter $lastCrashDir
-
-	# If a test case exists then move it if not then error to the user
-	if [ -e $lastTestCase ]; then
-
-		# Now move the test case that caused the panic to the directory
-		mv $lastTestCase 02_crashes/$lastCrashDir
-
-		log "[i]: Moved the test case $lastTestCase to 02_crashes/$lastCrashDir"
-
-	# Error that test case couldn't be found
-	else
-		# Log the error
-		log "[e]: Unable to find $lastTestCase, something is not right here?"
-	fi
+	# Search the /var/logs/CrashReporter directory
+	findCrashLogs $varLogsCrashReporter $crashDir$lastCrashDir/panics $lastCounter
 
 	# Log to the user that all crashes and the test case have been moved to the directory
-	log "[i]: All crash dumps and logs have been recovered to the direcotry 02_crashes/$lastCrashDir."
+	log "[i]: All crash dumps and logs have been recovered to the direcotry $crashDir/$lastCrashDir."
 
 	# Set the kernel panic back to 0 incase script is killed off and run again
-	echo 0 > 04_conf/kernelpanic.dat
+	echo 0 > $kernelPanicStatusDat
 fi
 #
 
@@ -558,25 +628,31 @@ log "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 while :
 do
 	# Let the user know we are starting the test 
-	log "[i]: Test case $counter for $testfile starting @ `date`"
+	log "[i]: Test case $counter for $testFile starting @ `date`"
 	
 	# Set the $testcase variable
-	testcase="$counter"_"$fuzzedfile"
+	testCase="$counter"_"$fuzzedfile"
 	
 	# Get $RANDOM into a variable so we can use and log later
 	seed=$RANDOM
 
+	# Put seed into seed .dat file
+	echo $seed  > $lastSeedUsedDat
+
 	# Set ratio value in a variable so we can record it later 
 	ratio="0.0001:0.001"
 
+	# Put seed into seed .dat file
+	echo $ratio  > $lastRatioUsedDat
+
 	# Let the user know we creating the test case
-	log "[i]: Creating test case $testcase using seed $seed and ratio $ratio"
+	log "[i]: Creating test case $testCase using seed $seed and ratio $ratio"
 
 	# Used to calculate the time to create the test case
 	T="$(date +%s)" 
 
 	#zzuf to create a test case taking an input file and then outputs file. -s uses random to get a random seed and -r is the ratio. 
-	zzuf -s $seed -r $ratio < $testfile > $testcasedir/$testcase
+	zzuf -s $seed -r $ratio < $testFile > $sessionTestCaseDir/$testCase
 
 	# Used to calculate the time to create the test case
 	T="$(($(date +%s)-T))"
@@ -585,25 +661,25 @@ do
 	log "[i]: Time to create the test case in seconds: $T"
 	
 	# Echo the name of test case created
-	log "[i]: Test case $testcasedir/$testcase created with seed $seed and ratio $ratio"
+	log "[i]: Test case $sessionTestCaseDir/$testCase created with seed $seed and ratio $ratio"
 	
 	# Update the last test case log file so that if it kernel panics we can get the crash and crash log
-	echo "$testcasedir/$testcase" > $lastTestCase
+	echo "$sessionTestCaseDir/$testCase" > $lastTestCaseDat
 
 	# Let user know we captured the last test case detailds
-	log "[i]: Recorded testcase details ($testcasedir/$testcase)for future refernece."
+	log "[i]: Recorded testcase details ($sessionTestCaseDir/$testCase)for future refernece."
 	
 	# Update kernelPanic.dat
-	echo "1" > ./04_conf/kernelpanic.dat
+	echo "1" > $kernelPanicStatusDat
 
 	# Let user know kernelpanic.dat has been updated
-	log "[i]: Updated kernelpanic.dat with 1."
+	log "[i]: Updated $kernelPanicStatusDat with 1."
 
 	# Let use know we are going to test using the specified URL
-	log "[i]: Now testing $url:$port/01_testcases/$sessiondate/$testcase with Mobile Safari."
+	log "[i]: Now testing $url:$port${sessionTestCaseDir:1}/$testCase with Mobile Safari."
 
 	# Use sbopenurl from comex to open safari and launch test case
-	sbopenurl "$url:$port/01_testcases/$sessiondate/$testcase" 
+	sbopenurl "$url:$port${sessionTestCaseDir:1}/$testCase" 
 
 	# Let the user know going to sleep for x second
 	log "[i]: Now sleeping for $sleeptime seconds to allow testcase to play / run and crashdump to be created."
@@ -611,62 +687,17 @@ do
 	# Now sleep, this should probably be the length of the mov file before it is fuzzed?
 	sleep $sleeptime
 
-	# Check the $CrashReporter Directory dir
+	# Check the crash reporter directory for a crash
+	findCrashLogs $CrashReporter $sessionCrashDir $counter
 
-	# Counter for logs
-	logCounter=0
-
-		# Loop through the crash logs (Should make this a function or merge with findCrashLogs function)
-		find $CrashReporter -type f | while read line 
-		do
-				# Increment counter
-				(( logCounter++ ))
-				
-				# Log we found a crash and are going to copy it to crashdir
-				log -e "[i]: Crash found with seed $seed and ratio $ratio, copying to 02_crashes/$sessiondate/$testcase.plist";
-
-				# Store the seed in a file too
-				echo $seed  > $crashdir/$testcase.seed
-
-				# Tell user we are copying the test case so we can reproduce
-				log "[i]: Copying crash $(basename $line) to crash directory $sessiondate for further investigation."
-
-				# Cat it's output into a crashes directory
-				cat $line > $crashdir/"$counter"_$(basename $line) 2> /dev/null
-				
-				# Tell user we are copying the test case so we can reproduce
-				log "[i]: Copying test case ($testcasedir/$testcase) to crash directory $sessiondate for further investigation."
-				
-				# and then copy the test case to the crashes directory
-				cp $testcasedir/$testcase $crashdir/$testcase
-
-				# Clean up and delete the crash file
-				rm $line 2> /dev/null
-				
-				# Tell user we deleted the crash file
-				log "[i]: Deleted $line."
-
-		done
-
-	# Output logs found
-	log "[i]: Found $logCounter logs in $CrashReporter."
-
-	# Also check the panicLogs directory /var/log/CrashReporter, some get created here too.
-	findPanicCrashLogs $PanicLogsCrashReporter $crashdir
+	# Also check the directory /var/log/CrashReporter, some get created here too.
+	findCrashLogs $varLogsCrashReporter $sessionCrashDir/panics $counter
 
 	#Let user know we deleted test case
 	log "[i]: Set kernelpanic.dat value to 0."
 
 	# Set kernel panic back to 0
-	echo "0" > ./04_conf/kernelpanic.dat
-
-	#Cleanup test cases & crashes
-	rm $testcasedir/$testcase
-
-	rm -r $PanicLogsCrashReporter* 2>/dev/null2
-
-	#Let user know we deleted test case
-	log "[i]: Deleted testcases ($testcasedir/$testcase) as no longer required."
+	echo "0" > $kernelPanicStatusDat
 
 	# Kill off any Mobile Safari executeables that maybe running and send errors to /dev/null as we don't care about them.
 	killall -9 MobileSafari 2> /dev/null
@@ -675,7 +706,7 @@ do
 	log "[i]: Killed Mobile Safari process."
 
 	# Echo some debug to let user know test case finished
-	log "[i]: Test case $counter for $testfile finished."
+	log "[i]: Test case $counter for $testFile finished."
 
 	# Increment counter for testcase number
 	(( counter++ ))

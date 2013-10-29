@@ -3,7 +3,7 @@ fuzzyDuck
 
        Author: @isa56k
          File: fuzzyDuck.sh
-      version: 0.1
+      version: 0.3
         About: A shell script that is used to fuzz on an iOS device. 
                Creates a webserver to serve up test cases that are 
                created via zzuf and then uses sbopenurl to try and
@@ -23,3 +23,9 @@ fuzzyDuck
         
       A lot of this is based on the examples in the iOS hackers handbook and from what I have learned 
       in OpenJailbreak IRC and class.
+
+      Since the first release I have added in a few new features:
+
+      1. Launch Daemon to recover from reboot
+      2. Clean up to remove all directories
+      3. iMessage alerts
