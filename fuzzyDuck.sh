@@ -1,13 +1,17 @@
 #!/bin/bash
 # 
 #       Author: t:@isa56k e:me@isa56k.com w:www.isa56k.com
+#
 # 	      File: fuzzyDuck.sh
-#      version: 0.3
+#
+#      version: 0.4
+#
 # 	     About: A shell script that is used to fuzz on an iOS device. 
 #               Creates a webserver to serve up test cases that are 
 #               created via zzuf and then uses sbopenurl to try and
 #               launch the test case. If a crash is found it is saved
 #               to crashes directory for further inspection. Quack!!   
+#
 # Instructions: 1. Jailbreak iDevice
 #               2. Install APT 0.7 Strict from cydia
 #               3. Install OpenSSH from Cydia. 
@@ -17,8 +21,13 @@
 #               7. SCP this script to directory on device you just created
 #               8. Type chmod +x fuzzyDuck.sh to make executeable
 #               9. run (see example)
-#      Example: ./fuzzyDuck.sh <filename> <url> <port> <sleep>
-#               ./fuzzyDuck.sh fuzzThis.mov http://localhost 3000 15
+#
+#      Usage:   ./fuzzyDuck.sh <filename> <url> <port> <sleep>
+#               ./fuzzyDuck.sh fuzzThis.mov http://localhost 3000 15  <- Standard Usage
+# 				./fuzzyDuck cleanUp <- Deletes all directories
+#  				./fuzzyDuck installUpD0g <- Installs upD0g launch Daemon to run after reboot / panic
+#				./fuzzyDuck removeUpD0g <- Removes upD0g launch Daemon
+#
 # Arguments
 testFile=$1 # First is the file we are going to fuzz
 url=$2 # The root url for the test case
@@ -297,7 +306,7 @@ iMessage()
 	if [ -e /Applications/biteSMS.app/biteSMS ]; then	
 		if [ -e $iMessageAddressDat ]; then 
 			iMessageAddress=$(<$iMessageAddressDat); 
-			echo iMessageAddress
+			echo $iMessageAddress
 			/Applications/biteSMS.app/biteSMS -send -iMessage $iMessageAddress 
 			log "[i]: iMessage $1 sent to $iMessageAddress."
 		fi
@@ -704,6 +713,9 @@ do
 
 	# Let user know they were killed
 	log "[i]: Killed Mobile Safari process."
+
+	#Dleete the test case as it is no longer needed else disk sapce will disappear
+	rm $sessionTestCaseDir/$testCase
 
 	# Echo some debug to let user know test case finished
 	log "[i]: Test case $counter for $testFile finished."
