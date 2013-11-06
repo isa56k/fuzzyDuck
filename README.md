@@ -11,7 +11,7 @@ fuzzyDuck
               Creates a webserver to serve up test cases that are 
               created via zzuf and then uses sbopenurl to try and
               launch the test case. If a crash is found it is saved
-              to crashes directory for further inspection. Quack!!   
+              to crashes directory for further inspection. Quack.
 
 Instructions: 1. Jailbreak iDevice
               2. Install APT 0.7 Strict from cydia
@@ -23,7 +23,7 @@ Instructions: 1. Jailbreak iDevice
               8. Type chmod +x fuzzyDuck.sh to make executeable
               9. run (see example)
 
-     Usage:   ./fuzzyDuck.sh <filename> <url> <port> <sleep>
+       Usage: ./fuzzyDuck.sh <filename> <url> <port> <sleep>
               ./fuzzyDuck.sh fuzzThis.mov http://localhost 3000 15  <- Standard Usage
               ./fuzzyDuck cleanUp                                   <- Deletes all directories
               ./fuzzyDuck installUpD0g                              <- Installs upD0g launch Daemon to run after reboot / panic
