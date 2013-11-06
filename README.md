@@ -13,7 +13,7 @@ fuzzyDuck
               launch the test case. If a crash is found it is saved
               to crashes directory for further inspection. Quack.
 
-Instructions: 1. Jailbreak iDevice
+    Pre-reqs: 1. Jailbreak iDevice
               2. Install APT 0.7 Strict from cydia
               3. Install OpenSSH from Cydia. 
               4. Close Cydia on device.
