@@ -10,9 +10,9 @@
 #               Creates a webserver to serve up test cases that are 
 #               created via zzuf and then uses sbopenurl to try and
 #               launch the test case. If a crash is found it is saved
-#               to crashes directory for further inspection. Quack!!   
+#               to crashes directory for further inspection. Quack.
 #
-# Instructions: 1. Jailbreak iDevice
+#     pre-reqs: 1. Jailbreak iDevice
 #               2. Install APT 0.7 Strict from cydia
 #               3. Install OpenSSH from Cydia. 
 #               4. Close Cydia on device.
@@ -715,7 +715,7 @@ do
 	log "[i]: Killed Mobile Safari process."
 
 	#Dleete the test case as it is no longer needed else disk sapce will disappear
-	rm $sessionTestCaseDir/$testCase
+	rm $sessionTestCaseDir/$testCase 2> /dev/null
 
 	# Echo some debug to let user know test case finished
 	log "[i]: Test case $counter for $testFile finished."
