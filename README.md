@@ -29,4 +29,4 @@ fuzzyDuck
               ./fuzzyDuck installUpD0g                              <- Installs upD0g launch Daemon to run after reboot / panic
               ./fuzzyDuck removeUpD0g                               <- Removes upD0g launch Daemon
 
-              I also tired to get it to send you an iMessage on finding a crash log but havent got it working yet.
+              I also want to get it to send you an iMessage on finding a crash log but havent got it working yet.
