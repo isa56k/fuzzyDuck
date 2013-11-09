@@ -173,9 +173,14 @@ cleanup(){
   
   # Kill lighttpd
   killall -9 lighttpd 2> /dev/null
-
+ 
+  # Mobile Safari
+  killall -9 lighttpd 2> /dev/null
+ 
   # Set the kernel panic value to 0 as clean exit
-  echo 0 > $kernelPanicStatusDat
+  if [ -e $kernelPanicStatusDat ]; then
+  	echo 0 > $kernelPanicStatusDat
+  fi
   
   return $?
 }
